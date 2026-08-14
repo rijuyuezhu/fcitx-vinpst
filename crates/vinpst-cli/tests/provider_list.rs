@@ -85,10 +85,11 @@ fn provider_list_text_prints_table_and_active_marker() {
     fs::remove_file(&path).expect("remove temporary provider config");
 
     let stdout = assert_stdout_success(output, "provider list text");
-    assert!(stdout.contains("ID\tTYPE\tMODEL\tSTATUS"));
-    assert!(stdout.contains("local\tlocal\t/tmp/model\t"));
-    assert!(stdout.contains("cmd\tcommand\t-\tactive"));
-    assert!(stdout.contains("remote\tremote\tcloud\t"));
+    common::assert_table_row(&stdout, &["ID", "TYPE", "MODEL", "STATUS"]);
+    common::assert_table_row(&stdout, &["local", "local", "/tmp/model"]);
+    common::assert_table_row(&stdout, &["cmd", "command", "-", "active"]);
+    common::assert_table_row(&stdout, &["remote", "remote", "cloud"]);
+    assert!(!stdout.contains('\t'));
     for internal in [
         "source:",
         "config_path:",
@@ -1312,9 +1313,16 @@ fn provider_list_available_text_prints_live_registry_table() {
     fs::remove_file(&i18n_path).expect("remove temporary i18n");
 
     let stdout = assert_stdout_success(output, "provider list available text");
-    assert!(stdout.contains("ID\tTITLE\tMODE\tSTATUS"));
-    assert!(stdout.contains("oai-stream\tOpenAI 兼容流式\tstreaming\tinstalled"));
-    assert!(stdout.contains("doubao-batch\tdoubao-batch\tbatch\tavailable"));
+    common::assert_table_row(&stdout, &["ID", "TITLE", "MODE", "STATUS"]);
+    common::assert_table_row(
+        &stdout,
+        &["oai-stream", "OpenAI 兼容流式", "streaming", "installed"],
+    );
+    common::assert_table_row(
+        &stdout,
+        &["doubao-batch", "doubao-batch", "batch", "available"],
+    );
+    assert!(!stdout.contains('\t'));
     for internal in [
         "registry_source:",
         "config_source:",

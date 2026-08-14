@@ -75,9 +75,16 @@ fn scene_list_text_prints_table_and_active_marker() {
     fs::remove_file(&path).expect("remove temporary scene config");
 
     let stdout = assert_stdout_success(output, "scene list text");
-    assert!(stdout.contains("ID\tLABEL\tPROVIDER\tMODEL\tCANDIDATES\tSTATUS"));
-    assert!(stdout.contains("raw\tRaw\t-\t-\t0\t"));
-    assert!(stdout.contains("rewrite\tRewrite\topenai\tgpt-scene\t2\tactive"));
+    common::assert_table_row(
+        &stdout,
+        &["ID", "LABEL", "PROVIDER", "MODEL", "CANDIDATES", "STATUS"],
+    );
+    common::assert_table_row(&stdout, &["raw", "Raw", "-", "-", "0"]);
+    common::assert_table_row(
+        &stdout,
+        &["rewrite", "Rewrite", "openai", "gpt-scene", "2", "active"],
+    );
+    assert!(!stdout.contains('\t'));
     for internal in [
         "source:",
         "config_path:",

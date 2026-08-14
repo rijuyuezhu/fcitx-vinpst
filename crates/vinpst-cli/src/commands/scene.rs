@@ -239,10 +239,7 @@ fn handle_scene_add_command(command: SceneCommand) -> anyhow::Result<()> {
 fn print_scene_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
     let context = load_scene_list_context(config_path)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&scene_list_json(&context))?
-        );
+        vinpst_terminal::print_json(&scene_list_json(&context))?;
     } else {
         print_scene_list_text(&context);
     }
@@ -306,22 +303,23 @@ fn scene_summary_json(
 }
 
 fn print_scene_list_text(context: &SceneListContext) {
-    println!("ID\tLABEL\tPROVIDER\tMODEL\tCANDIDATES\tSTATUS");
-    for scene in &context.config.scenes.definitions {
-        println!(
-            "{}\t{}\t{}\t{}\t{}\t{}",
-            scene.id,
-            scene_display_label(&scene.id, &scene.label),
-            scene.provider_id.as_deref().unwrap_or("-"),
-            scene.model.as_deref().unwrap_or("-"),
-            scene.candidate_count,
-            if scene.id == context.config.scenes.active_scene {
-                "active"
-            } else {
-                ""
-            },
-        );
-    }
+    vinpst_terminal::print_table(
+        ["ID", "LABEL", "PROVIDER", "MODEL", "CANDIDATES", "STATUS"],
+        context.config.scenes.definitions.iter().map(|scene| {
+            [
+                scene.id.clone(),
+                scene_display_label(&scene.id, &scene.label).to_owned(),
+                scene.provider_id.as_deref().unwrap_or("-").to_owned(),
+                scene.model.as_deref().unwrap_or("-").to_owned(),
+                scene.candidate_count.to_string(),
+                if scene.id == context.config.scenes.active_scene {
+                    "active".to_owned()
+                } else {
+                    String::new()
+                },
+            ]
+        }),
+    );
 }
 
 fn scene_display_label<'a>(id: &'a str, label: &'a str) -> &'a str {
@@ -341,10 +339,7 @@ fn print_scene_add(request: SceneAddRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_scene_add(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&scene_add_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&scene_add_outcome_json(&outcome))?;
     } else {
         print_scene_add_text(&outcome);
     }
@@ -399,10 +394,7 @@ fn print_scene_edit(request: SceneEditRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_scene_edit(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&scene_edit_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&scene_edit_outcome_json(&outcome))?;
     } else {
         print_scene_edit_text(&outcome);
     }
@@ -463,10 +455,7 @@ fn print_scene_remove(request: SceneRemoveRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_scene_remove(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&scene_remove_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&scene_remove_outcome_json(&outcome))?;
     } else {
         print_scene_remove_text(&outcome);
     }
@@ -808,10 +797,7 @@ fn print_scene_use(request: SceneUseRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_scene_use(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&scene_use_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&scene_use_outcome_json(&outcome))?;
     } else {
         print_scene_use_text(&outcome);
     }

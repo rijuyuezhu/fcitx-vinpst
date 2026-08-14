@@ -101,3 +101,21 @@ pub fn assert_stdout_success(output: Output, context: &str) -> String {
     String::from_utf8(stdout)
         .unwrap_or_else(|error| panic!("{context}: stdout should be UTF-8: {error}"))
 }
+
+#[allow(dead_code)]
+pub fn assert_table_row(stdout: &str, cells: &[&str]) {
+    let found = stdout.lines().any(|line| {
+        let mut offset = 0;
+        cells.iter().all(|cell| {
+            let Some(index) = line[offset..].find(cell) else {
+                return false;
+            };
+            offset += index + cell.len();
+            true
+        })
+    });
+    assert!(
+        found,
+        "expected table row with cells {cells:?}; stdout:\n{stdout}"
+    );
+}

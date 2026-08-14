@@ -14,6 +14,7 @@ fcitx-vinpst/
     vinpst-asr          # ASR traits, mock backend, command backend, sherpa-onnx backend
     vinpst-text         # scene prompts, text adapters, command-mode text transforms
     vinpst-daemon-control # shared daemon user-service command and execution boundary
+    vinpst-terminal     # shared terminal JSON and display-width-aware table presentation
     vinpst-registry     # registry metadata, download, safe extraction, materialization
     vinpst-daemon       # async runtime, D-Bus service, orchestration actors
     vinpst-fcitx-core   # pure frontend payload/session/control decisions without Fcitx types

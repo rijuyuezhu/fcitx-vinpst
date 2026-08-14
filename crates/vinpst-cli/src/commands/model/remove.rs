@@ -29,10 +29,7 @@ pub(super) fn print_model_remove_plan(request: ModelRemoveRequest<'_>) -> anyhow
         plan.removed = true;
     }
     if request.json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&model_remove_plan_json(&plan))?
-        );
+        vinpst_terminal::print_json(&model_remove_plan_json(&plan))?;
     } else {
         print_model_remove_plan_text(&plan);
     }

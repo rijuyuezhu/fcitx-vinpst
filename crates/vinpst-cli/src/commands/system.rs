@@ -21,33 +21,27 @@ pub(crate) fn print_protocol() -> anyhow::Result<()> {
         "signals": dbus::SERVICE_SIGNALS,
         "statuses": ServiceStatus::WIRE_VALUES,
     });
-    println!("{}", serde_json::to_string_pretty(&value)?);
+    vinpst_terminal::print_json(&value)?;
     Ok(())
 }
 
 pub(crate) fn validate_config() -> anyhow::Result<()> {
     let config = VinpstConfig::bundled_default().context("parse bundled config")?;
     config.validate().context("validate bundled config")?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&config_summary_json(&config))?
-    );
+    vinpst_terminal::print_json(&config_summary_json(&config))?;
     Ok(())
 }
 
 pub(crate) fn print_asr_state(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
     let (_, config) = load_diagnostic_config(config_path, "ASR state")?;
     let state = AsrBackendFactory::state_for_config(&config.asr);
-    println!("{}", serde_json::to_string_pretty(&state)?);
+    vinpst_terminal::print_json(&state)?;
     Ok(())
 }
 
 pub(crate) fn print_audio_devices(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
     let (_, config) = load_diagnostic_config(config_path, "audio device diagnostics")?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&audio_devices_json(&config)?)?
-    );
+    vinpst_terminal::print_json(&audio_devices_json(&config)?)?;
     Ok(())
 }
 
@@ -93,7 +87,7 @@ pub(crate) fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> 
             &timeout,
         ),
     });
-    println!("{}", serde_json::to_string_pretty(&summary)?);
+    vinpst_terminal::print_json(&summary)?;
     Ok(())
 }
 
@@ -379,10 +373,7 @@ pub(crate) fn write_activation_service(
 
 pub(crate) fn print_user_activation_service_status() -> anyhow::Result<()> {
     let path = user_activation_service_path()?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&user_activation_service_json(&path))?
-    );
+    vinpst_terminal::print_json(&user_activation_service_json(&path))?;
     Ok(())
 }
 
@@ -400,14 +391,11 @@ pub(crate) fn remove_user_activation_service() -> anyhow::Result<()> {
         fs::remove_file(&path)
             .with_context(|| format!("remove activation service `{}`", path.display()))?;
     }
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&serde_json::json!({
-            "ok": true,
-            "removed": existed,
-            "user_service_path": path,
-            "next_steps": activation_service_status_next_steps(),
-        }))?
-    );
+    vinpst_terminal::print_json(&serde_json::json!({
+        "ok": true,
+        "removed": existed,
+        "user_service_path": path,
+        "next_steps": activation_service_status_next_steps(),
+    }))?;
     Ok(())
 }

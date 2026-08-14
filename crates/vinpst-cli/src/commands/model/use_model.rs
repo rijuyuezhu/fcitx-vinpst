@@ -131,10 +131,7 @@ pub(super) fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::R
     }
 
     if request.json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&model_use_preview_json(&preview))?
-        );
+        vinpst_terminal::print_json(&model_use_preview_json(&preview))?;
     } else {
         print_model_use_preview_text(&preview);
     }

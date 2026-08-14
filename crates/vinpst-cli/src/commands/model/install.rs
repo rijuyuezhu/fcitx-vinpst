@@ -48,7 +48,7 @@ pub(super) fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> 
             &staging_root,
         )?;
         if request.json_output {
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            vinpst_terminal::print_json(&output)?;
         } else {
             print_model_install_plan_text(model, i18n.i18n.as_ref(), &model_root, &staging_root)?;
         }
@@ -88,7 +88,7 @@ pub(super) fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> 
     if request.json_output {
         let output =
             live_model_install_result_json(model, i18n.i18n.as_ref(), &loaded, &i18n, &installed)?;
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else {
         print_model_install_result_text(model, i18n.i18n.as_ref(), &installed);
     }

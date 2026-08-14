@@ -12,10 +12,7 @@ pub(super) fn print_provider_add(request: ProviderAddRequest<'_>) -> anyhow::Res
     let json_output = request.json_output;
     let outcome = run_provider_add(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&provider_add_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&provider_add_outcome_json(&outcome))?;
     } else {
         print_provider_add_text(&outcome);
     }
@@ -202,10 +199,7 @@ pub(super) fn print_provider_remove(request: ProviderRemoveRequest<'_>) -> anyho
     let json_output = request.json_output;
     let outcome = run_provider_remove(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&provider_remove_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&provider_remove_outcome_json(&outcome))?;
     } else {
         print_provider_remove_text(&outcome);
     }
@@ -361,10 +355,7 @@ pub(super) fn print_provider_use(request: ProviderUseRequest<'_>) -> anyhow::Res
     let json_output = request.json_output;
     let outcome = run_provider_use(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&provider_use_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&provider_use_outcome_json(&outcome))?;
     } else {
         print_provider_use_text(&outcome);
     }

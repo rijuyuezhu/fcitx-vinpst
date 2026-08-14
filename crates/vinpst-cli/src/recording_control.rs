@@ -44,7 +44,7 @@ fn print_recording_status(dry_run: bool, json_output: bool) -> anyhow::Result<()
         recording_status_via_dbus()?
     };
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else {
         print_recording_status_text(&output);
     }
@@ -126,7 +126,7 @@ fn print_recording_action(
     if dry_run {
         let output = recording_plan_json(action, selected_text, scene);
         if json_output {
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            vinpst_terminal::print_json(&output)?;
         } else {
             print_recording_plan_text(action, selected_text, scene);
         }
@@ -134,7 +134,7 @@ fn print_recording_action(
     }
     let result = recording_action_via_dbus(action, selected_text, scene)?;
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&result)?);
+        vinpst_terminal::print_json(&result)?;
     } else {
         print_recording_result_text(&result);
     }

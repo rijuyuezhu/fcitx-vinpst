@@ -14,6 +14,7 @@ Keep the workspace split by responsibility:
 - `vinpst-asr`: ASR traits, sessions, command backends, remote backends, and native backends.
 - `vinpst-text`: prompts, context cache, text adapters, and provider transports.
 - `vinpst-daemon-control`: shared typed user-service command construction and execution for CLI/GUI daemon lifecycle controls.
+- `vinpst-terminal`: shared stdout presentation for Vinpst binaries, including pretty JSON and Unicode display-width-aware tables.
 - `vinpst-registry`: registry schemas, safe downloads, extraction, and managed publication.
 - `vinpst-daemon`: runtime orchestration and D-Bus service facade.
 - `vinpst-fcitx-core`: safe, Fcitx-independent frontend state machines and presentation policy.
@@ -28,7 +29,7 @@ The retained C++ frontend owns Fcitx API integration, menus, preedit/commit pres
 
 Keep public facades thin and place use-case logic behind domain modules:
 
-- `vinpst-cli/src/main.rs` is routing only. Clap data lives under `cli/`, command use cases under `commands/`, daemon lifecycle under `daemon_control/`, and shared path/config/registry/output services in focused support modules.
+- `vinpst-cli/src/main.rs` is routing only. Clap data lives under `cli/`, command use cases under `commands/`, daemon lifecycle under `daemon_control/`, and path/config/registry plus command-specific human-output policy in focused support modules. Generic terminal JSON/table rendering belongs in `vinpst-terminal` rather than CLI-local helpers.
 - `vinpst-config/src/lib.rs` re-exports the public schema. Schema data, defaults/normalization, validation, file behavior, errors, and tests are separate modules.
 - `vinpst-asr/src/sherpa/` separates the public typed specification, offline layout/path inference, and the feature-gated runtime backend.
 - the retained Fcitx addon separates recording/daemon integration from Scene/ASR menu implementation; do not move backend policy into C++.

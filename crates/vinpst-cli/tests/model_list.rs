@@ -435,8 +435,14 @@ fn model_list_text_prints_source_columns_and_support_marker() {
         .expect("run vinpst model list");
 
     let stdout = assert_stdout_success(output, "model list text");
-    assert!(stdout.contains("ID\tTITLE\tLANGUAGE\tSIZE\tTYPE\tHOTWORDS\tSTATUS"));
-    assert!(stdout.contains("onnx-sv-zh-int8-off\tSenseVoice 五语"));
+    common::assert_table_row(
+        &stdout,
+        &[
+            "ID", "TITLE", "LANGUAGE", "SIZE", "TYPE", "HOTWORDS", "STATUS",
+        ],
+    );
+    common::assert_table_row(&stdout, &["onnx-sv-zh-int8-off", "SenseVoice 五语"]);
+    assert!(!stdout.contains('\t'));
     assert!(stdout.contains("sense_voice"));
     assert!(stdout.contains("available"));
     for internal in [
@@ -1818,12 +1824,26 @@ fn model_list_installed_text_prints_local_rows() {
         .expect("run vinpst model list --installed");
 
     let stdout = assert_stdout_success(output, "model list installed text");
-    assert!(stdout.contains("ID\tLANGUAGE\tSIZE\tTYPE\tHOTWORDS\tSTATUS"));
-    assert!(stdout.contains("installed-text\tzh\t42 B\tsense_voice\tno\tinstalled"));
+    common::assert_table_row(
+        &stdout,
+        &["ID", "LANGUAGE", "SIZE", "TYPE", "HOTWORDS", "STATUS"],
+    );
+    common::assert_table_row(
+        &stdout,
+        &[
+            "installed-text",
+            "zh",
+            "42 B",
+            "sense_voice",
+            "no",
+            "installed",
+        ],
+    );
+    assert!(!stdout.contains('\t'));
     for internal in [
         "model_root:",
         "models:",
-        "path\t",
+        "path:",
         "backend",
         "runtime",
         "files",

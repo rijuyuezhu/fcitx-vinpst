@@ -34,7 +34,7 @@ pub(super) fn print_daemon_reload_asr_plan(dry_run: bool, json_output: bool) -> 
     };
     let output = daemon_reload_asr_output(dry_run, asr_state.as_ref());
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else if dry_run {
         println!("Would reload the selected ASR backend.");
         println!("No daemon will be contacted.");

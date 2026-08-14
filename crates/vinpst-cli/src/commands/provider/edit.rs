@@ -16,10 +16,7 @@ pub(super) fn print_provider_edit(request: ProviderEditRequest<'_>) -> anyhow::R
     let json_output = request.json_output;
     let outcome = run_provider_edit(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&provider_edit_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&provider_edit_outcome_json(&outcome))?;
     } else {
         print_provider_edit_text(&outcome);
     }
@@ -144,10 +141,7 @@ pub(super) fn print_provider_edit_script(
     let json_output = request.json_output;
     let outcome = run_provider_edit_script(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&provider_edit_script_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&provider_edit_script_outcome_json(&outcome))?;
     } else {
         print_provider_edit_script_text(&outcome);
     }
