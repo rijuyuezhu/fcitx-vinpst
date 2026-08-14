@@ -272,34 +272,22 @@ async fn handle_utility_command(
 ) -> anyhow::Result<()> {
     match command {
         Command::PrintConfig => {
-            println!("{}", serde_json::to_string_pretty(&config.summary())?);
+            vinpst_terminal::print_json(&config.summary())?;
         }
         Command::AsrState => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&RuntimeState::configured_asr_state(config))?
-            );
+            vinpst_terminal::print_json(&RuntimeState::configured_asr_state(config))?;
         }
         Command::TextAdapters => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&RuntimeState::configured_text_adapter_state(config))?
-            );
+            vinpst_terminal::print_json(&RuntimeState::configured_text_adapter_state(config))?;
         }
         Command::AudioDevices => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&audio_devices_summary(config)?)?
-            );
+            vinpst_terminal::print_json(&audio_devices_summary(config)?)?;
         }
         Command::RuntimeStatus => {
             let mut runtime =
                 build_runtime(args, config.clone()).context("initialize runtime status")?;
             apply_runtime_flags(args, &mut runtime);
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&runtime_status_summary(&runtime, config, args)?)?
-            );
+            vinpst_terminal::print_json(&runtime_status_summary(&runtime, config, args)?)?;
         }
         Command::RemoteTextServer { bind } => {
             run_remote_text_server(config, *bind).await?;

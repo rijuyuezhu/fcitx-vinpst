@@ -30,6 +30,7 @@ vinpst-protocol = { path = "../vinpst-protocol" }
 vinpst-process = { path = "../vinpst-process" }
 vinpst-registry = { path = "../vinpst-registry" }
 vinpst-text = { path = "../vinpst-text" }
+vinpst-terminal = { path = "../vinpst-terminal" }
 zbus = { workspace = true, features = ["blocking-api"] }
 
 [dev-dependencies]

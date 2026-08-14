@@ -216,10 +216,7 @@ fn print_hotword_get(
 ) -> anyhow::Result<()> {
     let context = load_hotword_get_context(provider_id, config_path)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&hotword_get_json(&context))?
-        );
+        vinpst_terminal::print_json(&hotword_get_json(&context))?;
     } else {
         print_hotword_get_text(&context);
     }
@@ -304,10 +301,7 @@ fn print_hotword_edit(request: HotwordEditRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_hotword_edit(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&hotword_edit_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&hotword_edit_json(&outcome))?;
     } else {
         print_hotword_edit_text(&outcome);
     }
@@ -414,10 +408,7 @@ fn print_hotword_mutation(request: HotwordMutationRequest<'_>) -> anyhow::Result
     let json_output = request.json_output;
     let outcome = run_hotword_mutation(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&hotword_mutation_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&hotword_mutation_json(&outcome))?;
     } else {
         print_hotword_mutation_text(&outcome);
     }

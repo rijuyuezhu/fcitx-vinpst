@@ -63,7 +63,7 @@ pub(super) fn print_available_provider_list(
         ],
     });
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else {
         print_cache_fallback_warning(&loaded.source_json, "provider registry");
         print_available_provider_list_text(&loaded, &loaded_i18n, &context, &configured_ids);
@@ -109,34 +109,32 @@ fn print_available_provider_list_text(
     _context: &ProviderListContext,
     configured_ids: &std::collections::BTreeSet<&str>,
 ) {
-    println!("ID\tTITLE\tMODE\tSTATUS");
-    for provider in &loaded.registry.items {
-        println!(
-            "{}\t{}\t{}\t{}",
-            provider.display_id(),
-            provider.resolved_title(loaded_i18n.i18n.as_ref()),
-            if provider.stream {
-                "streaming"
-            } else {
-                "batch"
-            },
-            if configured_ids.contains(provider.id.as_str()) {
-                "installed"
-            } else {
-                "available"
-            },
-        );
-    }
+    vinpst_terminal::print_table(
+        ["ID", "TITLE", "MODE", "STATUS"],
+        loaded.registry.items.iter().map(|provider| {
+            [
+                provider.display_id().to_owned(),
+                provider.resolved_title(loaded_i18n.i18n.as_ref()).clone(),
+                if provider.stream {
+                    "streaming".to_owned()
+                } else {
+                    "batch".to_owned()
+                },
+                if configured_ids.contains(provider.id.as_str()) {
+                    "installed".to_owned()
+                } else {
+                    "available".to_owned()
+                },
+            ]
+        }),
+    );
 }
 
 pub(super) fn print_provider_install(request: ProviderInstallRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_provider_install(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&provider_install_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&provider_install_outcome_json(&outcome))?;
     } else {
         print_provider_install_text(&outcome);
     }
@@ -372,10 +370,7 @@ pub(super) fn print_provider_list(
 ) -> anyhow::Result<()> {
     let context = load_provider_list_context(config_path)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&provider_list_json(&context))?
-        );
+        vinpst_terminal::print_json(&provider_list_json(&context))?;
     } else {
         print_provider_list_text(&context);
     }
@@ -440,18 +435,19 @@ fn provider_summary_json(provider: &AsrProviderConfig, active_provider: &str) ->
 }
 
 fn print_provider_list_text(context: &ProviderListContext) {
-    println!("ID\tTYPE\tMODEL\tSTATUS");
-    for provider in &context.config.asr.providers {
-        println!(
-            "{}\t{}\t{}\t{}",
-            provider.id,
-            asr_provider_kind_label(&provider.kind),
-            provider.model.as_deref().unwrap_or("-"),
-            if provider.id == context.config.asr.active_provider {
-                "active"
-            } else {
-                ""
-            },
-        );
-    }
+    vinpst_terminal::print_table(
+        ["ID", "TYPE", "MODEL", "STATUS"],
+        context.config.asr.providers.iter().map(|provider| {
+            [
+                provider.id.clone(),
+                asr_provider_kind_label(&provider.kind).to_owned(),
+                provider.model.as_deref().unwrap_or("-").to_owned(),
+                if provider.id == context.config.asr.active_provider {
+                    "active".to_owned()
+                } else {
+                    String::new()
+                },
+            ]
+        }),
+    );
 }

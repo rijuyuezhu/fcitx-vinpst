@@ -185,7 +185,7 @@ fn print_llm_test(
 ) -> anyhow::Result<()> {
     let outcome = run_llm_test(id, text, timeout_ms, config_path, dry_run)?;
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&outcome)?);
+        vinpst_terminal::print_json(&outcome)?;
     } else {
         print_llm_test_text(&outcome);
     }
@@ -333,10 +333,7 @@ fn print_llm_add(request: LlmAddRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_llm_add(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&llm_add_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&llm_add_outcome_json(&outcome))?;
     } else {
         print_llm_add_text(&outcome);
     }
@@ -395,10 +392,7 @@ fn print_llm_edit(request: LlmEditRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_llm_edit(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&llm_edit_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&llm_edit_outcome_json(&outcome))?;
     } else {
         print_llm_edit_text(&outcome);
     }
@@ -563,10 +557,7 @@ fn print_llm_remove(request: LlmRemoveRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_llm_remove(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&llm_remove_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&llm_remove_outcome_json(&outcome))?;
     } else {
         print_llm_remove_text(&outcome);
     }
@@ -820,10 +811,7 @@ fn print_llm_remove_text(outcome: &LlmRemoveOutcome) {
 fn print_llm_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
     let context = load_llm_list_context(config_path)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&llm_list_json(&context))?
-        );
+        vinpst_terminal::print_json(&llm_list_json(&context))?;
     } else {
         print_llm_list_text(&context);
     }
@@ -876,18 +864,19 @@ fn llm_provider_summary_json(provider: &vinpst_config::LlmProviderConfig) -> ser
 }
 
 fn print_llm_list_text(context: &LlmListContext) {
-    println!("ID\tBASE URL\tMODEL\tAPI KEY");
-    for provider in &context.config.llm.providers {
-        println!(
-            "{}\t{}\t{}\t{}",
-            provider.id,
-            vinpst_config::redact_url_for_diagnostics(&provider.base_url),
-            provider.model.as_deref().unwrap_or("-"),
-            if provider.api_key.trim().is_empty() {
-                "not set"
-            } else {
-                "set"
-            },
-        );
-    }
+    vinpst_terminal::print_table(
+        ["ID", "BASE URL", "MODEL", "API KEY"],
+        context.config.llm.providers.iter().map(|provider| {
+            [
+                provider.id.clone(),
+                vinpst_config::redact_url_for_diagnostics(&provider.base_url),
+                provider.model.as_deref().unwrap_or("-").to_owned(),
+                if provider.api_key.trim().is_empty() {
+                    "not set".to_owned()
+                } else {
+                    "set".to_owned()
+                },
+            ]
+        }),
+    );
 }

@@ -62,15 +62,12 @@ fn print_device_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow
     let context = load_device_list_context(config_path)?;
     let audio = audio_devices_json(&context.config)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "ok": true,
-                "config_path": context.config_path.as_ref(),
-                "source": context.source,
-                "audio": audio,
-            }))?
-        );
+        vinpst_terminal::print_json(&serde_json::json!({
+            "ok": true,
+            "config_path": context.config_path.as_ref(),
+            "source": context.source,
+            "audio": audio,
+        }))?;
     } else {
         print_device_list_text(context.config_path.as_ref(), context.source, &audio);
     }
@@ -101,11 +98,17 @@ fn print_device_list_text(
     if let Some(error) = audio["enumeration_error"].as_str() {
         println!("Live device discovery unavailable: {error}");
     }
-    println!("TARGET\tID\tNAME\tDESCRIPTION\tSTATUS");
-    println!(
-        "default\t-\tdefault\tDefault capture source\t{}",
-        if selected == "default" { "active" } else { "" }
-    );
+    let mut rows = vec![[
+        "default".to_owned(),
+        "-".to_owned(),
+        "default".to_owned(),
+        "Default capture source".to_owned(),
+        if selected == "default" {
+            "active".to_owned()
+        } else {
+            String::new()
+        },
+    ]];
     if let Some(devices) = audio["devices"].as_array() {
         for device in devices {
             let id = device["id"]
@@ -113,12 +116,20 @@ fn print_device_list_text(
                 .map_or_else(|| "-".to_owned(), |id| id.to_string());
             let name = device["name"].as_str().unwrap_or("");
             let description = device["description"].as_str().unwrap_or("");
-            println!(
-                "{name}\t{id}\t{name}\t{description}\t{}",
-                if selected == name { "active" } else { "" }
-            );
+            rows.push([
+                name.to_owned(),
+                id,
+                name.to_owned(),
+                description.to_owned(),
+                if selected == name {
+                    "active".to_owned()
+                } else {
+                    String::new()
+                },
+            ]);
         }
     }
+    vinpst_terminal::print_table(["TARGET", "ID", "NAME", "DESCRIPTION", "STATUS"], rows);
 }
 
 fn print_device_use(request: DeviceUseRequest<'_>) -> anyhow::Result<()> {
@@ -128,10 +139,7 @@ fn print_device_use(request: DeviceUseRequest<'_>) -> anyhow::Result<()> {
         eprintln!("Warning: {warning}");
     }
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&device_use_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&device_use_outcome_json(&outcome))?;
     } else {
         print_device_use_text(&outcome);
     }

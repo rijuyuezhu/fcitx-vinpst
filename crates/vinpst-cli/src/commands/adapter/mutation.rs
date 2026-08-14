@@ -11,10 +11,7 @@ pub(super) fn print_adapter_edit(request: AdapterEditRequest<'_>) -> anyhow::Res
     let json_output = request.json_output;
     let outcome = run_adapter_edit(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&adapter_edit_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&adapter_edit_outcome_json(&outcome))?;
     } else {
         print_adapter_edit_text(&outcome);
     }
@@ -162,10 +159,7 @@ pub(super) fn print_adapter_add(request: AdapterAddRequest<'_>) -> anyhow::Resul
     let json_output = request.json_output;
     let outcome = run_adapter_add(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&adapter_add_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&adapter_add_outcome_json(&outcome))?;
     } else {
         print_adapter_add_text(&outcome);
     }
@@ -221,10 +215,7 @@ pub(super) fn print_adapter_remove(request: AdapterRemoveRequest<'_>) -> anyhow:
     let json_output = request.json_output;
     let outcome = run_adapter_remove(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&adapter_remove_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&adapter_remove_outcome_json(&outcome))?;
     } else {
         print_adapter_remove_text(&outcome);
     }

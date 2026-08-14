@@ -73,7 +73,7 @@ pub(super) fn print_adapter_lifecycle(
     }
     let output = adapter_lifecycle_output(action, &resolution, method, dry_run);
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else if dry_run {
         println!("Would {action} text adapter `{}`.", resolution.adapter_id);
         println!("No daemon will be contacted.");
@@ -148,7 +148,7 @@ pub(super) fn print_adapter_status(
         adapter_status_state_json(resolution.as_ref(), &state)?
     };
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else {
         print_adapter_status_text(&output);
     }
@@ -249,7 +249,7 @@ fn print_adapter_status_text(output: &serde_json::Value) {
     }
 
     if let Some(adapter) = output.get("adapter") {
-        print_adapter_status_row(adapter);
+        vinpst_terminal::print_rows(std::iter::once(adapter_status_row(adapter)));
         return;
     }
 
@@ -258,24 +258,29 @@ fn print_adapter_status_text(output: &serde_json::Value) {
     if count == 0 {
         return;
     }
-    println!("ID\tKIND\tSTATE\tPID");
-    if let Some(adapters) = output["adapters"].as_array() {
-        for adapter in adapters {
-            print_adapter_status_row(adapter);
-        }
-    }
+    vinpst_terminal::print_table(
+        ["ID", "KIND", "STATE", "PID"],
+        output["adapters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(adapter_status_row),
+    );
 }
 
-fn print_adapter_status_row(adapter: &serde_json::Value) {
+fn adapter_status_row(adapter: &serde_json::Value) -> [String; 4] {
     let running = adapter["is_running"].as_bool().unwrap_or(false);
     let pid = adapter["pid"]
         .as_u64()
         .map_or_else(|| "-".to_owned(), |pid| pid.to_string());
-    println!(
-        "{}\t{}\t{}\t{}",
-        adapter["id"].as_str().unwrap_or("-"),
-        adapter["kind"].as_str().unwrap_or("-"),
-        if running { "running" } else { "stopped" },
+    [
+        adapter["id"].as_str().unwrap_or("-").to_owned(),
+        adapter["kind"].as_str().unwrap_or("-").to_owned(),
+        if running {
+            "running".to_owned()
+        } else {
+            "stopped".to_owned()
+        },
         pid,
-    );
+    ]
 }

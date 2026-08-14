@@ -20,7 +20,7 @@ pub(super) fn print_daemon_user_service_plan(
     if dry_run {
         let output = daemon_user_service_dry_run_json(action, &command);
         if json_output {
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            vinpst_terminal::print_json(&output)?;
         } else {
             print_daemon_user_service_dry_run_text(action, &command);
         }
@@ -37,7 +37,7 @@ pub(super) fn print_daemon_user_service_plan(
         run_daemon_user_service_command(action, &command)
     };
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else {
         print_daemon_user_service_result_text(&output);
     }
@@ -309,7 +309,7 @@ pub(super) fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Re
             "next_steps": daemon_start_next_steps(),
         });
         if json_output {
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            vinpst_terminal::print_json(&output)?;
         } else {
             println!("Would activate the Vinpst daemon.");
             println!("No daemon will be contacted.");
@@ -332,7 +332,7 @@ pub(super) fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Re
         "next_steps": daemon_start_next_steps(),
     });
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else {
         println!(
             "Vinpst daemon is running ({}).",

@@ -626,8 +626,18 @@ fn device_list_text_includes_default_target() {
         .expect("run vinpst device list text");
 
     let stdout = common::assert_stdout_success(output, "device list text");
-    assert!(stdout.contains("TARGET\tID\tNAME\tDESCRIPTION\tSTATUS"));
-    assert!(stdout.contains("default\t-\tdefault\tDefault capture source\tactive"));
+    common::assert_table_row(&stdout, &["TARGET", "ID", "NAME", "DESCRIPTION", "STATUS"]);
+    common::assert_table_row(
+        &stdout,
+        &[
+            "default",
+            "-",
+            "default",
+            "Default capture source",
+            "active",
+        ],
+    );
+    assert!(!stdout.contains('\t'));
     for internal in [
         "source:",
         "config_path:",

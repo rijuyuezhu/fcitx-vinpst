@@ -15,7 +15,7 @@ pub(super) fn print_daemon_status(dry_run: bool, json_output: bool) -> anyhow::R
     if dry_run {
         let output = daemon_status_dry_run_json();
         if json_output {
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            vinpst_terminal::print_json(&output)?;
         } else {
             print_daemon_status_dry_run_text();
         }
@@ -24,7 +24,7 @@ pub(super) fn print_daemon_status(dry_run: bool, json_output: bool) -> anyhow::R
 
     let snapshot = daemon_status_via_dbus()?;
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&snapshot)?);
+        vinpst_terminal::print_json(&snapshot)?;
     } else {
         print_daemon_status_text(&snapshot);
     }

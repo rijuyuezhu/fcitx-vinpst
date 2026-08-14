@@ -35,20 +35,17 @@ pub(crate) fn handle_config_get(
         (value, false, true, Some(kind))
     };
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "ok": true,
-                "config_path": loaded.path,
-                "source": loaded.source,
-                "pointer": pointer,
-                "exists": exists,
-                "default_used": default_used,
-                "default_string": default_string,
-                "parsed_default_kind": parsed_default_kind,
-                "value": value,
-            }))?
-        );
+        vinpst_terminal::print_json(&serde_json::json!({
+            "ok": true,
+            "config_path": loaded.path,
+            "source": loaded.source,
+            "pointer": pointer,
+            "exists": exists,
+            "default_used": default_used,
+            "default_string": default_string,
+            "parsed_default_kind": parsed_default_kind,
+            "value": value,
+        }))?;
     } else {
         print_config_value(&value)?;
     }
@@ -73,7 +70,7 @@ fn print_config_get_exists(
         if let Some(value) = value {
             payload["value"] = value.clone();
         }
-        println!("{}", serde_json::to_string_pretty(&payload)?);
+        vinpst_terminal::print_json(&payload)?;
     } else {
         println!("{exists}");
     }
@@ -123,10 +120,7 @@ pub(crate) fn handle_config_set(request: ConfigSetRequest<'_>) -> anyhow::Result
     };
     let outcome = run_config_set(&request, &raw_value)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&config_set_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&config_set_outcome_json(&outcome))?;
     } else {
         print_config_set_outcome_text(&outcome);
     }
@@ -265,7 +259,7 @@ fn print_config_value(value: &serde_json::Value) -> anyhow::Result<()> {
     if let Some(value) = value.as_str() {
         println!("{value}");
     } else {
-        println!("{}", serde_json::to_string_pretty(value)?);
+        vinpst_terminal::print_json(value)?;
     }
     Ok(())
 }
@@ -315,10 +309,7 @@ pub(crate) fn handle_config_edit(request: ConfigEditRequest<'_>) -> anyhow::Resu
     let json_output = request.json_output;
     let outcome = run_config_edit(request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&config_edit_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&config_edit_outcome_json(&outcome))?;
     } else {
         print_config_edit_outcome_text(&outcome);
     }
@@ -569,10 +560,7 @@ pub(crate) fn validate_config_file(path: &PathBuf, _summary_only: bool) -> anyho
     config
         .validate()
         .with_context(|| format!("validate config `{}`", path.display()))?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&config_summary_json(&config))?
-    );
+    vinpst_terminal::print_json(&config_summary_json(&config))?;
     Ok(())
 }
 
@@ -598,10 +586,7 @@ fn list_config_examples() -> anyhow::Result<()> {
             })
         })
         .collect::<Vec<_>>();
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&serde_json::json!({"examples": examples}))?
-    );
+    vinpst_terminal::print_json(&serde_json::json!({"examples": examples}))?;
     Ok(())
 }
 

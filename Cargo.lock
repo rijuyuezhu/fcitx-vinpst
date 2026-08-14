@@ -4341,6 +4341,7 @@ dependencies = [
  "vinpst-process",
  "vinpst-protocol",
  "vinpst-registry",
+ "vinpst-terminal",
  "vinpst-text",
  "zbus",
 ]
@@ -4383,6 +4384,7 @@ dependencies = [
  "vinpst-process",
  "vinpst-protocol",
  "vinpst-registry",
+ "vinpst-terminal",
  "vinpst-text",
  "zbus",
 ]
@@ -4491,6 +4493,15 @@ dependencies = [
  "vinpst-config",
  "vinpst-process",
  "zstd",
+]
+
+[[package]]
+name = "vinpst-terminal"
+version = "0.1.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-width",
 ]
 
 [[package]]

@@ -57,7 +57,7 @@ fn print_model_list(request: ModelListRequest<'_>) -> anyhow::Result<()> {
     });
 
     if request.json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else {
         print_cache_fallback_warning(&loaded.source_json, "model registry");
         print_model_list_text(&loaded, &i18n);
@@ -72,10 +72,7 @@ fn print_installed_model_list(model_root: Option<&Path>, json_output: bool) -> a
     };
     let models = load_installed_model_list(&model_root)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&installed_model_list_json(&model_root, &models))?
-        );
+        vinpst_terminal::print_json(&installed_model_list_json(&model_root, &models))?;
     } else {
         print_installed_model_list_text(&model_root, &models);
     }
@@ -96,10 +93,7 @@ pub(super) fn print_model_info(request: ModelInfoRequest<'_>) -> anyhow::Result<
         )?;
         let info = load_installed_model_info(&model_dir)?;
         if request.json_output {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&installed_model_info_json(&info)?)?
-            );
+            vinpst_terminal::print_json(&installed_model_info_json(&info)?)?;
         } else {
             print_installed_model_info_text(&info);
         }
@@ -119,7 +113,7 @@ pub(super) fn print_model_info(request: ModelInfoRequest<'_>) -> anyhow::Result<
     let output = live_model_info_json(model, i18n.i18n.as_ref(), &loaded, &i18n)?;
 
     if request.json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else {
         print_cache_fallback_warning(&loaded.source_json, "model registry");
         print_model_info_text(model, i18n.i18n.as_ref(), &loaded, &i18n);
@@ -337,47 +331,51 @@ fn live_model_info_json(
 }
 
 fn print_model_list_text(loaded: &LoadedLiveModelRegistry, i18n: &LoadedLiveI18n) {
-    println!("ID\tTITLE\tLANGUAGE\tSIZE\tTYPE\tHOTWORDS\tSTATUS");
-    for model in &loaded.registry.items {
-        let support = live_model_support(model);
-        println!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            model.display_id(),
-            model.resolved_title(i18n.i18n.as_ref()),
-            optional_str(model.language.as_deref()),
-            format_size_bytes(model.size_bytes),
-            optional_str(model.model_family()),
-            if model.supports_hotwords() {
-                "yes"
-            } else {
-                "no"
-            },
-            if support.supported {
-                "available"
-            } else {
-                "unsupported"
-            },
-        );
-    }
+    vinpst_terminal::print_table(
+        [
+            "ID", "TITLE", "LANGUAGE", "SIZE", "TYPE", "HOTWORDS", "STATUS",
+        ],
+        loaded.registry.items.iter().map(|model| {
+            let support = live_model_support(model);
+            [
+                model.display_id().to_owned(),
+                model.resolved_title(i18n.i18n.as_ref()).clone(),
+                optional_str(model.language.as_deref()).to_owned(),
+                format_size_bytes(model.size_bytes),
+                optional_str(model.model_family()).to_owned(),
+                if model.supports_hotwords() {
+                    "yes".to_owned()
+                } else {
+                    "no".to_owned()
+                },
+                if support.supported {
+                    "available".to_owned()
+                } else {
+                    "unsupported".to_owned()
+                },
+            ]
+        }),
+    );
 }
 
 fn print_installed_model_list_text(_model_root: &Path, models: &[InstalledModelInfo]) {
-    println!("ID\tLANGUAGE\tSIZE\tTYPE\tHOTWORDS\tSTATUS");
-    for model in models {
-        println!(
-            "{}\t{}\t{}\t{}\t{}\t{}",
-            model.model_id,
-            optional_str(model.metadata.language.as_deref()),
-            format_size_bytes(model.metadata.size_bytes),
-            optional_str(model.metadata.model_family()),
-            if model.metadata.supports_hotwords {
-                "yes"
-            } else {
-                "no"
-            },
-            model.state.as_str(),
-        );
-    }
+    vinpst_terminal::print_table(
+        ["ID", "LANGUAGE", "SIZE", "TYPE", "HOTWORDS", "STATUS"],
+        models.iter().map(|model| {
+            [
+                model.model_id.clone(),
+                optional_str(model.metadata.language.as_deref()).to_owned(),
+                format_size_bytes(model.metadata.size_bytes),
+                optional_str(model.metadata.model_family()).to_owned(),
+                if model.metadata.supports_hotwords {
+                    "yes".to_owned()
+                } else {
+                    "no".to_owned()
+                },
+                model.state.as_str().to_owned(),
+            ]
+        }),
+    );
 }
 
 fn installed_model_dir_name(model_dir: &Path) -> String {

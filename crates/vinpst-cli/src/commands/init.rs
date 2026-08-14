@@ -35,10 +35,7 @@ pub(crate) fn handle_init(request: InitRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_init(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&init_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&init_outcome_json(&outcome))?;
     } else {
         print_init_outcome_text(&outcome);
     }

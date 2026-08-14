@@ -22,10 +22,7 @@ pub(super) fn print_adapter_install(request: AdapterInstallRequest<'_>) -> anyho
     let json_output = request.json_output;
     let outcome = run_adapter_install(&request)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&adapter_install_outcome_json(&outcome))?
-        );
+        vinpst_terminal::print_json(&adapter_install_outcome_json(&outcome))?;
     } else {
         print_adapter_install_text(&outcome);
     }
@@ -283,7 +280,7 @@ pub(super) fn print_adapter_install_plan(
                 "assets": plan.assets,
             })
         };
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else {
         print_adapter_install_plan_text(&id, registry_path, &plan, summary_only);
     }
@@ -342,10 +339,7 @@ pub(super) fn print_adapter_list(
     }
     let context = load_adapter_list_context(config_path)?;
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&adapter_list_json(&context))?
-        );
+        vinpst_terminal::print_json(&adapter_list_json(&context))?;
     } else {
         print_adapter_list_text(&context);
     }
@@ -397,7 +391,7 @@ fn print_available_adapter_list(
         ],
     });
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        vinpst_terminal::print_json(&output)?;
     } else {
         print_cache_fallback_warning(&loaded.source_json, "adapter registry");
         print_available_adapter_list_text(&loaded, &loaded_i18n, &context, &configured_ids);
@@ -443,19 +437,20 @@ fn print_available_adapter_list_text(
     _context: &AdapterListContext,
     configured_ids: &std::collections::BTreeSet<&str>,
 ) {
-    println!("ID\tTITLE\tSTATUS");
-    for adapter in &loaded.registry.items {
-        println!(
-            "{}\t{}\t{}",
-            adapter.display_id(),
-            adapter.resolved_title(loaded_i18n.i18n.as_ref()),
-            if configured_ids.contains(adapter.id.as_str()) {
-                "installed"
-            } else {
-                "available"
-            },
-        );
-    }
+    vinpst_terminal::print_table(
+        ["ID", "TITLE", "STATUS"],
+        loaded.registry.items.iter().map(|adapter| {
+            [
+                adapter.display_id().to_owned(),
+                adapter.resolved_title(loaded_i18n.i18n.as_ref()).clone(),
+                if configured_ids.contains(adapter.id.as_str()) {
+                    "installed".to_owned()
+                } else {
+                    "available".to_owned()
+                },
+            ]
+        }),
+    );
 }
 
 pub(super) fn load_adapter_list_context(
@@ -508,8 +503,13 @@ fn adapter_summary_json(adapter: &vinpst_config::LlmAdapterConfig) -> serde_json
 }
 
 fn print_adapter_list_text(context: &AdapterListContext) {
-    println!("ID\tSTATUS");
-    for adapter in &context.config.llm.adapters {
-        println!("{}\tconfigured", adapter.id);
-    }
+    vinpst_terminal::print_table(
+        ["ID", "STATUS"],
+        context
+            .config
+            .llm
+            .adapters
+            .iter()
+            .map(|adapter| [adapter.id.clone(), "configured".to_owned()]),
+    );
 }

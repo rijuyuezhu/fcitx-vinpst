@@ -76,7 +76,7 @@ pub(super) fn print_daemon_install_service(
         ],
     });
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&value)?);
+        vinpst_terminal::print_json(&value)?;
     } else {
         println!("action: install-service");
         println!("dry_run: {dry_run}");

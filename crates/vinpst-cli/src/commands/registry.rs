@@ -15,7 +15,7 @@ pub(crate) fn print_registry_summary() -> anyhow::Result<()> {
         "base_url_count": config.registry.base_urls.len(),
         "index_urls": registry_urls_for_diagnostics(&index_asset.resolved_urls(&config.registry)),
     });
-    println!("{}", serde_json::to_string_pretty(&summary)?);
+    vinpst_terminal::print_json(&summary)?;
     Ok(())
 }
 
@@ -32,7 +32,7 @@ pub(crate) fn validate_registry_index(path: &PathBuf) -> anyhow::Result<()> {
         "adapter_count": index_summary.adapter_count,
         "asset_count": index_summary.asset_count,
     });
-    println!("{}", serde_json::to_string_pretty(&summary)?);
+    vinpst_terminal::print_json(&summary)?;
     Ok(())
 }
 
@@ -69,7 +69,7 @@ pub(crate) fn print_registry_plan(
             "assets": planned_assets,
         })
     };
-    println!("{}", serde_json::to_string_pretty(&summary)?);
+    vinpst_terminal::print_json(&summary)?;
     Ok(())
 }
 
@@ -118,7 +118,7 @@ pub(crate) fn print_registry_install_plan(
             "assets": plan.assets,
         })
     };
-    println!("{}", serde_json::to_string_pretty(&summary)?);
+    vinpst_terminal::print_json(&summary)?;
     Ok(())
 }
 

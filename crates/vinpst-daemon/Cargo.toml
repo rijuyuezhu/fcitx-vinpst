@@ -32,6 +32,7 @@ vinpst-config = { path = "../vinpst-config" }
 vinpst-process = { path = "../vinpst-process" }
 vinpst-protocol = { path = "../vinpst-protocol" }
 vinpst-registry = { path = "../vinpst-registry" }
+vinpst-terminal = { path = "../vinpst-terminal" }
 vinpst-text = { path = "../vinpst-text" }
 zbus.workspace = true
 

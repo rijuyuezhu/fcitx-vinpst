@@ -88,9 +88,21 @@ fn llm_list_text_prints_table_without_secret_values() {
     fs::remove_file(&path).expect("remove temporary llm config");
 
     let stdout = assert_stdout_success(output, "llm list text");
-    assert!(stdout.contains("ID\tBASE URL\tMODEL\tAPI KEY"));
-    assert!(stdout.contains("openai\thttps://llm.example.test/v1\tgpt-4o-mini\tset"));
-    assert!(stdout.contains("local\thttp://127.0.0.1:11434/v1\t-\tnot set"));
+    common::assert_table_row(&stdout, &["ID", "BASE URL", "MODEL", "API KEY"]);
+    common::assert_table_row(
+        &stdout,
+        &[
+            "openai",
+            "https://llm.example.test/v1",
+            "gpt-4o-mini",
+            "set",
+        ],
+    );
+    common::assert_table_row(
+        &stdout,
+        &["local", "http://127.0.0.1:11434/v1", "-", "not set"],
+    );
+    assert!(!stdout.contains('\t'));
     for internal in [
         "source:",
         "config_path:",
@@ -1837,9 +1849,10 @@ fn adapter_list_available_text_prints_live_registry_table() {
     fs::remove_file(&i18n_path).expect("remove temporary i18n");
 
     let stdout = assert_stdout_success(output, "adapter list available text");
-    assert!(stdout.contains("ID\tTITLE\tSTATUS"));
-    assert!(stdout.contains("mtran-proxy\tMTranServer 代理\tinstalled"));
-    assert!(stdout.contains("other\tother\tavailable"));
+    common::assert_table_row(&stdout, &["ID", "TITLE", "STATUS"]);
+    common::assert_table_row(&stdout, &["mtran-proxy", "MTranServer 代理", "installed"]);
+    common::assert_table_row(&stdout, &["other", "other", "available"]);
+    assert!(!stdout.contains('\t'));
     for internal in [
         "registry_source:",
         "config_source:",
@@ -2061,16 +2074,17 @@ fn adapter_list_text_prints_table_without_secret_values() {
     fs::remove_file(&path).expect("remove temporary adapter config");
 
     let stdout = assert_stdout_success(output, "adapter list text");
-    assert!(stdout.contains("ID\tSTATUS"));
-    assert!(stdout.contains("command-adapter\tconfigured"));
-    assert!(stdout.contains("simple-adapter\tconfigured"));
+    common::assert_table_row(&stdout, &["ID", "STATUS"]);
+    common::assert_table_row(&stdout, &["command-adapter", "configured"]);
+    common::assert_table_row(&stdout, &["simple-adapter", "configured"]);
+    assert!(!stdout.contains('\t'));
     for internal in [
         "source:",
         "config_path:",
         "adapter_count:",
-        "command\t",
-        "args\t",
-        "env\t",
+        "command:",
+        "args:",
+        "env:",
         "working_dir",
         "extra_fields",
     ] {
