@@ -685,7 +685,7 @@ jobs:
             echo "CACHIX_AUTH_TOKEN must be configured before release" >&2
             exit 1
           fi
-      - uses: DeterminateSystems/nix-installer-action@v22
+      - uses: DeterminateSystems/nix-installer-action@v23
       - name: Configure Cachix
         uses: cachix/cachix-action@v17
         with:
